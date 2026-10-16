@@ -9,3 +9,4 @@ kanal = "0.1.1"
 nanonis-tcp = {git = "https://github.com/Brad-Hesson/nanonis-tcp"}
 tokio = { version = "1.53.2", features = ["full"] }
 tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
