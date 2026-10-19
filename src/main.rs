@@ -33,7 +33,7 @@ fn main() -> Result<()> {
             }
             "--help" | "-h" => {
                 println!(
-                    "nanonis-proxy [--headless] [--nanonis-host HOST]\n\nHOST accepts a hostname or IPv4/IPv6 address; --nanonis-ip is an alias.\nDesktop dashboard by default. Fixed listener localhost:6500; upstream ports 6501–6504.\nHost override applies only to this launch. Ctrl-C stops headless mode."
+                    "nanonis-proxy [--headless] [--nanonis-host HOST]\n\nHOST accepts a hostname or IPv4/IPv6 address; --nanonis-ip is an alias.\nDesktop dashboard by default. Fixed listener localhost:6500; configurable upstream ports (default 6501–6504).\nHost override applies only to this launch. Ctrl-C stops headless mode."
                 );
                 return Ok(());
             }
@@ -49,8 +49,7 @@ fn main() -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let (handle, backend) =
-        lifecycle::start(&runtime, config.nanonis_host, logger.clone(), config_path);
+    let (handle, backend) = lifecycle::start(&runtime, config, logger.clone(), config_path);
     let control = handle.controls.clone();
     let gui_logger = logger.clone();
     let result = if headless {

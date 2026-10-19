@@ -35,7 +35,10 @@ fn observer() -> (Instrumentation, std::thread::JoinHandle<()>, PathBuf) {
     (
         Instrumentation {
             logger,
-            model: Arc::new(Mutex::new(Model::new("127.0.0.1".parse().unwrap()))),
+            model: Arc::new(Mutex::new(Model::new(
+                "127.0.0.1".into(),
+                crate::config::DEFAULT_PORTS,
+            ))),
         },
         thread,
         dir,
@@ -331,4 +334,84 @@ async fn counted_writer_retains_partial_bytes_when_copy_fails() {
     drop(observer);
     thread.join().unwrap();
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn configured_ports_connect_and_report_the_correct_workers() {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let (observer, thread, dir) = observer();
+        let mut upstream_listeners = Vec::new();
+        for _ in 0..4 {
+            upstream_listeners.push(TcpListener::bind("127.0.0.1:0").await.unwrap());
+        }
+        let ports = std::array::from_fn(|i| upstream_listeners[i].local_addr().unwrap().port());
+        *observer.model.lock().unwrap() = Model::new("localhost".into(), ports);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (mode, rx_mode) = watch::channel(Phase::Running);
+        let proxy = tokio::spawn(run(
+            listener,
+            "localhost".into(),
+            ports,
+            observer.clone(),
+            Session::new(rx_mode),
+        ));
+        let mut upstreams = Vec::new();
+        for listener in upstream_listeners {
+            upstreams.push(listener.accept().await.unwrap().0);
+        }
+        let mut users = Vec::new();
+        for _ in 0..4 {
+            let mut user = TcpStream::connect(address).await.unwrap();
+            user.write_all(&packet(b"x", true)).await.unwrap();
+            users.push(user);
+        }
+        until(|| {
+            observer
+                .model
+                .lock()
+                .unwrap()
+                .workers
+                .iter()
+                .all(|w| w.state == "Busy")
+        })
+        .await;
+        {
+            let model = observer.model.lock().unwrap();
+            assert_eq!(model.ports(), ports);
+            for port in ports {
+                assert!(model.clients.values().any(|c| c.port == Some(port)));
+            }
+        }
+        for upstream in &mut upstreams {
+            let mut request = vec![0; HEADER_LEN + 1];
+            upstream.read_exact(&mut request).await.unwrap();
+            assert_eq!(request, packet(b"x", true));
+            upstream.write_all(&packet(b"ok", false)).await.unwrap();
+        }
+        for user in &mut users {
+            let mut response = vec![0; HEADER_LEN + 2];
+            user.read_exact(&mut response).await.unwrap();
+            assert_eq!(response, packet(b"ok", false));
+        }
+        mode.send_replace(Phase::Draining);
+        proxy.await.unwrap().unwrap();
+        {
+            let model = observer.model.lock().unwrap();
+            assert_eq!(model.total.completed, 4);
+            assert!(model.clients.is_empty());
+            for (worker, port) in model.workers.iter().zip(ports) {
+                assert_eq!(worker.port, port);
+                assert_eq!(worker.counters.completed, 1);
+                assert_eq!(worker.counters.up, (HEADER_LEN + 1) as u64);
+                assert_eq!(worker.counters.down, (HEADER_LEN + 2) as u64);
+                assert_eq!(worker.state, "Disconnected");
+            }
+        }
+        drop(observer);
+        thread.join().unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    })
+    .await
+    .expect("custom-port proxy timed out");
 }

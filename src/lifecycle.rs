@@ -26,7 +26,7 @@ pub enum Control {
     Connect,
     Disconnect,
     ForceDisconnect,
-    SetHost(String),
+    SetConfig(Config),
     Shutdown,
 }
 pub struct Handle {
@@ -65,11 +65,14 @@ impl Session {
 
 pub fn start(
     runtime: &Runtime,
-    host: String,
+    config: Config,
     logger: Logger,
     config_path: PathBuf,
 ) -> (Handle, JoinHandle<()>) {
-    let model = Arc::new(Mutex::new(Model::new(host)));
+    let model = Arc::new(Mutex::new(Model::new(
+        config.nanonis_host,
+        config.nanonis_ports,
+    )));
     let (snapshot_tx, snapshots) = watch::channel(model.lock().unwrap().clone());
     let (controls, rx) = mpsc::channel(32);
     let task = runtime.spawn(run(
@@ -100,12 +103,12 @@ async fn connect(
             return None;
         }
     };
-    let host = {
+    let (host, ports) = {
         let mut m = observer.model.lock().unwrap();
         m.phase = Phase::Running;
         m.listener = listener.local_addr().unwrap().to_string();
         m.control_error.clear();
-        m.host.clone()
+        (m.host.clone(), m.ports())
     };
     mode.send_replace(Phase::Running);
     observer
@@ -114,6 +117,7 @@ async fn connect(
     Some(tokio::spawn(backend::run(
         listener,
         host,
+        ports,
         observer.clone(),
         Session::new(mode.subscribe()),
     )))
@@ -135,19 +139,23 @@ async fn run(
                 match command.unwrap_or(Control::Shutdown) {
                     Control::Connect if proxy.is_none() => { proxy = connect(&observer, &mode).await; }
                     Control::Connect => { observer.model.lock().unwrap().control_error = "Disconnect must finish before connecting".into(); }
-                    Control::SetHost(host) if proxy.is_none() => {
+                    Control::SetConfig(config) if proxy.is_none() => {
                         let path = config_path.clone();
-                        let config = Config { nanonis_host: host.clone() };
-                        match tokio::task::spawn_blocking(move || config::save_to(&config, &path)).await {
+                        let saved = config.clone();
+                        match tokio::task::spawn_blocking(move || config::save_to(&saved, &path)).await {
                             Ok(Ok(())) => {
                                 let mut m = observer.model.lock().unwrap();
-                                m.host = host;
+                                m.host = config.nanonis_host;
+                                for (worker, port) in m.workers.iter_mut().zip(config.nanonis_ports) {
+                                    worker.port = port;
+                                    worker.error.clear();
+                                }
                                 m.control_error.clear();
                             }
-                            error => { observer.model.lock().unwrap().control_error = format!("Cannot save host: {error:?}"); }
+                            error => { observer.model.lock().unwrap().control_error = format!("Cannot save connection settings: {error:?}"); }
                         }
                     }
-                    Control::SetHost(_) => { observer.model.lock().unwrap().control_error = "Disconnect before changing the host".into(); }
+                    Control::SetConfig(_) => { observer.model.lock().unwrap().control_error = "Disconnect before changing connection settings".into(); }
                     command => {
                         shutdown = matches!(command, Control::Shutdown);
                         if proxy.is_some() {

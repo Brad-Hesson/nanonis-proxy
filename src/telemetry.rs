@@ -4,7 +4,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub const PORTS: [u16; 4] = [6501, 6502, 6503, 6504];
 pub const QUEUE_CAPACITY: usize = 32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -137,20 +136,33 @@ pub struct Model {
 }
 pub type Shared = Arc<Mutex<Model>>;
 impl Model {
-    pub fn new(host: String) -> Self {
+    pub fn new(host: String, ports: [u16; 4]) -> Self {
         Self {
             host,
             phase: Phase::Stopped,
             listener: "Stopped".into(),
             control_error: String::new(),
             clients: BTreeMap::new(),
-            workers: PORTS.into_iter().map(Worker::new).collect(),
+            workers: ports.into_iter().map(Worker::new).collect(),
             total: Counters::default(),
             timings: VecDeque::new(),
             history: VecDeque::new(),
             since: Instant::now(),
             last_sample: Instant::now(),
         }
+    }
+    pub fn worker_index(&self, port: u16) -> usize {
+        self.workers
+            .iter()
+            .position(|w| w.port == port)
+            .expect("configured worker port")
+    }
+    pub fn worker_mut(&mut self, port: u16) -> &mut Worker {
+        let index = self.worker_index(port);
+        &mut self.workers[index]
+    }
+    pub fn ports(&self) -> [u16; 4] {
+        std::array::from_fn(|i| self.workers[i].port)
     }
     pub fn queue_depth(&self) -> usize {
         self.clients
@@ -233,7 +245,7 @@ mod tests {
     fn percentiles_and_accounting() {
         assert_eq!(percentile([].into_iter(), 0.95), None);
         assert_eq!(percentile([1., 3., 2., 100.].into_iter(), 0.5), Some(2.));
-        let mut m = Model::new("127.0.0.1".parse().unwrap());
+        let mut m = Model::new("127.0.0.1".into(), crate::config::DEFAULT_PORTS);
         assert_eq!(m.workers[0].idle_percent(), None);
         m.bytes(99, 0, true, 40);
         m.bytes(99, 0, false, 60);

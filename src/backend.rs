@@ -31,13 +31,14 @@ static COMMAND_ID: AtomicU64 = AtomicU64::new(0);
 pub async fn run(
     listener: TcpListener,
     host: String,
+    ports: [u16; 4],
     observer: Instrumentation,
     session: Session,
 ) -> Result<()> {
     let (tx, rx) = kanal::bounded_async::<Request>(crate::telemetry::QUEUE_CAPACITY);
     // Retain task ownership so stopping the application also closes its sockets.
     let mut tasks = JoinSet::new();
-    for port in 6501..=6504 {
+    for port in ports {
         let host = host.clone();
         let observer = observer.clone();
         let rx = rx.clone();

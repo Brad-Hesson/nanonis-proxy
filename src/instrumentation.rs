@@ -48,7 +48,7 @@ impl Instrumentation {
         client
     }
     pub fn worker_state(&self, port: u16, state: &'static str) {
-        self.model.lock().unwrap().workers[index(port)].set_state(state);
+        self.model.lock().unwrap().worker_mut(port).set_state(state);
     }
     pub fn connected(&self, port: u16) {
         self.worker_state(port, "Idle");
@@ -62,7 +62,7 @@ impl Instrumentation {
     pub fn connection_failed(&self, port: u16, error: &str) {
         {
             let mut model = self.model.lock().unwrap();
-            let worker = &mut model.workers[index(port)];
+            let worker = model.worker_mut(port);
             worker.set_state("Retrying");
             worker.retries += 1;
             worker.error = error.into();
@@ -76,11 +76,8 @@ impl Instrumentation {
         });
     }
     pub fn worker_error(&self, port: u16, error: &str) {
-        self.model.lock().unwrap().workers[index(port)].error = error.into();
+        self.model.lock().unwrap().worker_mut(port).error = error.into();
     }
-}
-fn index(port: u16) -> usize {
-    (port - PORTS[0]) as usize
 }
 
 pub struct ClientMetrics {
@@ -181,7 +178,7 @@ impl PendingRequest {
         let started = Instant::now();
         {
             let mut m = self.observer.model.lock().unwrap();
-            let w = &mut m.workers[index(port)];
+            let w = m.worker_mut(port);
             w.set_state("Busy");
             w.client = Some(self.client);
             w.started = Some(started);
@@ -220,7 +217,7 @@ impl Transfer {
     pub fn command(&mut self, name: &str) {
         self.record.command = name.into();
         let mut m = self.observer.model.lock().unwrap();
-        m.workers[index(self.record.port.unwrap())].command = name.into();
+        m.worker_mut(self.record.port.unwrap()).command = name.into();
         if let Some(c) = m.clients.get_mut(&self.record.client.unwrap()) {
             c.command = name.into();
         }
@@ -265,7 +262,7 @@ impl Transfer {
                 }
             };
             count(&mut m.total);
-            count(&mut m.workers[index(self.record.port.unwrap())].counters);
+            count(&mut m.worker_mut(self.record.port.unwrap()).counters);
             if let Some(c) = m.clients.get_mut(&self.record.client.unwrap()) {
                 count(&mut c.counters);
             }
@@ -306,12 +303,9 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CountingWriter<'_, W> {
         let result = Pin::new(&mut *this.inner).poll_write(cx, bytes);
         if let Poll::Ready(Ok(n)) = result {
             let r = &mut this.transfer.record;
-            this.transfer.observer.model.lock().unwrap().bytes(
-                r.client.unwrap(),
-                index(r.port.unwrap()),
-                this.up,
-                n as u64,
-            );
+            let mut model = this.transfer.observer.model.lock().unwrap();
+            let index = model.worker_index(r.port.unwrap());
+            model.bytes(r.client.unwrap(), index, this.up, n as u64);
             if this.up {
                 r.up_bytes += n as u64;
             } else {

@@ -2,7 +2,8 @@
 
 A packet-level TCP multiplexer with a native egui dashboard. Clients connect to
 `localhost:6500`; four workers share a bounded queue and forward to Nanonis ports
-`6501` through `6504`. Neither listener nor upstream ports are configurable.
+`6501` through `6504` by default. The four upstream ports are configurable;
+the client listener remains `localhost:6500`.
 
 ```sh
 cargo run --release                         # desktop dashboard
@@ -26,7 +27,9 @@ operations may take a long time.
 
 The host / IP field accepts hostnames, IPv4, and IPv6 addresses and is enabled
 only after all connections, connection attempts, and client tasks have stopped.
-Apply saves the address; Connect starts listening and reconnecting again.
+The four upstream port fields are editable while disconnected as well. Enter four
+distinct ports between 1 and 65535, click **Apply settings** to save the host and
+ports together, then **Connect**. Ports need not be consecutive.
 Hostnames are resolved on each connection attempt; lookup failures appear in
 diagnostics and retry normally. A command-line host override applies only to
 that launch; `--nanonis-ip` remains an alias for `--nanonis-host`.
@@ -72,6 +75,14 @@ files use the platform local application data directory. On Linux these are
 `~/.config/nanonis-proxy/config.json` and
 `~/.local/share/nanonis-proxy/logs/` (or the corresponding XDG overrides).
 The diagnostic viewer displays the actual log directory.
+
+Configuration stores the host and four upstream ports, for example:
+
+```json
+{"nanonis_host": "nanonis.lab.local", "nanonis_ports": [7001, 7002, 7101, 7102]}
+```
+
+Existing configuration files without ports use the defaults 6501–6504.
 
 Logs retain `proxy.jsonl` plus four rotated files, each up to 10 MiB. The live
 viewer holds the latest 10,000 records, including retained records from earlier
