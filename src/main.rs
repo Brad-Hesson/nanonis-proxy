@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod backend;
 mod config;
 mod gui;
@@ -10,6 +12,7 @@ use color_eyre::{Result, eyre::eyre};
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
+    attach_parent_console();
     color_eyre::install()?;
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -82,3 +85,17 @@ fn main() -> Result<()> {
         .map_err(|_| eyre!("Log writer panicked"))?;
     result
 }
+
+
+
+#[cfg(windows)]
+fn attach_parent_console() {
+    use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_parent_console() {}
