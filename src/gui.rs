@@ -52,7 +52,7 @@ pub struct App {
     handle: Handle,
     logger: Logger,
     tab: Tab,
-    ip: String,
+    host: String,
     pending: String,
     filters: Filters,
     paused: bool,
@@ -70,13 +70,13 @@ pub struct App {
 }
 impl App {
     pub fn new(handle: Handle, logger: Logger) -> Self {
-        let ip = handle.snapshots.borrow().ip.to_string();
+        let host = handle.snapshots.borrow().host.to_string();
         let export_path = logger.directory.join("export.jsonl").display().to_string();
         Self {
             handle,
             logger,
             tab: Tab::Overview,
-            ip,
+            host,
             pending: String::new(),
             filters: Filters::default(),
             paused: false,
@@ -140,27 +140,30 @@ impl App {
                 self.send(Control::ForceDisconnect);
             }
             ui.separator();
-            ui.label("Nanonis IP:");
+            ui.label("Nanonis host / IP:");
             ui.add_enabled(
                 model.phase == Phase::Stopped,
-                egui::TextEdit::singleline(&mut self.ip).desired_width(160.),
+                egui::TextEdit::singleline(&mut self.host).desired_width(160.),
             );
             if ui
-                .add_enabled(model.phase == Phase::Stopped, egui::Button::new("Apply IP"))
+                .add_enabled(
+                    model.phase == Phase::Stopped,
+                    egui::Button::new("Apply host"),
+                )
                 .on_hover_text(
                     "Available only when all upstream connections and attempts have stopped",
                 )
                 .clicked()
             {
-                match self.ip.parse() {
-                    Ok(ip) => self.send(Control::SetIp(ip)),
-                    Err(_) => self.pending = "Enter a valid IPv4 or IPv6 address".into(),
+                match crate::config::parse_host(&self.host) {
+                    Ok(host) => self.send(Control::SetHost(host)),
+                    Err(error) => self.pending = error,
                 }
             }
         });
         ui.label(format!(
             "Listener: {}    Upstream: {}    Fixed ports: 6501–6504",
-            model.listener, model.ip
+            model.listener, model.host
         ));
         if model.phase == Phase::Draining {
             ui.label("Draining active transfers. Queued work was canceled; client connections will close.");

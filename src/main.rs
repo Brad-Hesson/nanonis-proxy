@@ -17,21 +17,20 @@ fn main() -> Result<()> {
         )
         .init();
     let mut headless = false;
-    let mut override_ip = None;
+    let mut override_host = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--headless" => headless = true,
-            "--nanonis-ip" => {
-                override_ip = Some(
-                    args.next()
-                        .ok_or_else(|| eyre!("--nanonis-ip needs an IPv4 or IPv6 address"))?
-                        .parse()?,
-                )
+            "--nanonis-host" | "--nanonis-ip" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| eyre!("{arg} needs a hostname or IP address"))?;
+                override_host = Some(config::parse_host(&value).map_err(|e| eyre!(e))?);
             }
             "--help" | "-h" => {
                 println!(
-                    "nanonis-proxy [--headless] [--nanonis-ip ADDRESS]\n\nDesktop dashboard by default. Fixed listener localhost:6500; upstream ports 6501–6504.\nIP override applies only to this launch. Ctrl-C stops headless mode."
+                    "nanonis-proxy [--headless] [--nanonis-host HOST]\n\nHOST accepts a hostname or IPv4/IPv6 address; --nanonis-ip is an alias.\nDesktop dashboard by default. Fixed listener localhost:6500; upstream ports 6501–6504.\nHost override applies only to this launch. Ctrl-C stops headless mode."
                 );
                 return Ok(());
             }
@@ -39,8 +38,8 @@ fn main() -> Result<()> {
         }
     }
     let mut config = config::load().map_err(|e| eyre!("Cannot load configuration: {e}"))?;
-    if let Some(ip) = override_ip {
-        config.nanonis_ip = ip;
+    if let Some(host) = override_host {
+        config.nanonis_host = host;
     }
     let (config_path, log_dir) = config::paths().map_err(|e| eyre!(e))?;
     let (logger, log_thread) = logging::Logger::start(log_dir);
@@ -48,7 +47,7 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?;
     let (handle, backend) =
-        lifecycle::start(&runtime, config.nanonis_ip, logger.clone(), config_path);
+        lifecycle::start(&runtime, config.nanonis_host, logger.clone(), config_path);
     let control = handle.controls.clone();
     let gui_logger = logger.clone();
     let result = if headless {

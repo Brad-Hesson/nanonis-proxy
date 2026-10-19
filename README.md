@@ -8,6 +8,7 @@ A packet-level TCP multiplexer with a native egui dashboard. Clients connect to
 cargo run --release                         # desktop dashboard
 cargo run --release -- --headless           # terminal-only operation
 cargo run --release -- --nanonis-ip 192.168.1.20
+cargo run --release -- --nanonis-host nanonis.lab.local
 ```
 
 On NixOS, use `nix develop` for the native window-system libraries. The desktop
@@ -23,9 +24,12 @@ must reconnect. **Force Disconnect** interrupts remaining transfers if draining
 cannot finish. There is intentionally no command execution timeout: Nanonis
 operations may take a long time.
 
-The IP field is enabled only after all connections, connection attempts, and
-client tasks have stopped. Apply saves the address; Connect starts listening and
-reconnecting again. A command-line IP override applies only to that launch.
+The host / IP field accepts hostnames, IPv4, and IPv6 addresses and is enabled
+only after all connections, connection attempts, and client tasks have stopped.
+Apply saves the address; Connect starts listening and reconnecting again.
+Hostnames are resolved on each connection attempt; lookup failures appear in
+diagnostics and retry normally. A command-line host override applies only to
+that launch; `--nanonis-ip` remains an alias for `--nanonis-host`.
 Closing the window or pressing Ctrl-C in headless mode interrupts transfers,
 closes the proxy, and flushes queued diagnostic writes.
 

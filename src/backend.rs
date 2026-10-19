@@ -1,7 +1,7 @@
 //! Original proxy flow: a shared Kanal queue, one manager per upstream port,
 //! and a oneshot that returns each client socket after forwarding a request.
 use std::{
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
@@ -30,7 +30,7 @@ static COMMAND_ID: AtomicU64 = AtomicU64::new(0);
 
 pub async fn run(
     listener: TcpListener,
-    ip: IpAddr,
+    host: String,
     observer: Instrumentation,
     session: Session,
 ) -> Result<()> {
@@ -38,11 +38,12 @@ pub async fn run(
     // Retain task ownership so stopping the application also closes its sockets.
     let mut tasks = JoinSet::new();
     for port in 6501..=6504 {
+        let host = host.clone();
         let observer = observer.clone();
         let rx = rx.clone();
         let session = session.clone();
         tasks.spawn(async move {
-            nanonis_port_manager(rx, ip, port, observer.clone(), session).await;
+            nanonis_port_manager(rx, host, port, observer.clone(), session).await;
             observer.worker_state(port, "Disconnected");
             Ok(())
         });
@@ -135,7 +136,7 @@ async fn client_handler(
 #[tracing::instrument(skip(request_rx, observer, session))]
 async fn nanonis_port_manager(
     request_rx: AsyncReceiver<Request>,
-    ip: IpAddr,
+    host: String,
     port: u16,
     observer: Instrumentation,
     session: Session,
@@ -144,7 +145,10 @@ async fn nanonis_port_manager(
         let conn = loop {
             observer.worker_state(port, "Connecting");
             info!("trying to connect");
-            let Ok(connection) = session.wait(TcpStream::connect((ip, port))).await else {
+            let Ok(connection) = session
+                .wait(TcpStream::connect((host.as_str(), port)))
+                .await
+            else {
                 return;
             };
             match connection {

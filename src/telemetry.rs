@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, VecDeque},
-    net::IpAddr,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -124,7 +123,7 @@ pub struct Sample {
 }
 #[derive(Clone)]
 pub struct Model {
-    pub ip: IpAddr,
+    pub host: String,
     pub phase: Phase,
     pub listener: String,
     pub control_error: String,
@@ -138,9 +137,9 @@ pub struct Model {
 }
 pub type Shared = Arc<Mutex<Model>>;
 impl Model {
-    pub fn new(ip: IpAddr) -> Self {
+    pub fn new(host: String) -> Self {
         Self {
-            ip,
+            host,
             phase: Phase::Stopped,
             listener: "Stopped".into(),
             control_error: String::new(),

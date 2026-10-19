@@ -10,7 +10,6 @@ use crate::{
 use color_eyre::{Result, eyre::eyre};
 use std::{
     future::Future,
-    net::IpAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
@@ -22,12 +21,12 @@ use tokio::{
     task::JoinHandle,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Control {
     Connect,
     Disconnect,
     ForceDisconnect,
-    SetIp(IpAddr),
+    SetHost(String),
     Shutdown,
 }
 pub struct Handle {
@@ -66,11 +65,11 @@ impl Session {
 
 pub fn start(
     runtime: &Runtime,
-    ip: IpAddr,
+    host: String,
     logger: Logger,
     config_path: PathBuf,
 ) -> (Handle, JoinHandle<()>) {
-    let model = Arc::new(Mutex::new(Model::new(ip)));
+    let model = Arc::new(Mutex::new(Model::new(host)));
     let (snapshot_tx, snapshots) = watch::channel(model.lock().unwrap().clone());
     let (controls, rx) = mpsc::channel(32);
     let task = runtime.spawn(run(
@@ -101,20 +100,20 @@ async fn connect(
             return None;
         }
     };
-    let ip = {
+    let host = {
         let mut m = observer.model.lock().unwrap();
         m.phase = Phase::Running;
         m.listener = listener.local_addr().unwrap().to_string();
         m.control_error.clear();
-        m.ip
+        m.host.clone()
     };
     mode.send_replace(Phase::Running);
     observer
         .logger
-        .event("INFO", format!("Proxy connected; Nanonis {ip}"));
+        .event("INFO", format!("Proxy connected; Nanonis {host}"));
     Some(tokio::spawn(backend::run(
         listener,
-        ip,
+        host,
         observer.clone(),
         Session::new(mode.subscribe()),
     )))
@@ -136,18 +135,19 @@ async fn run(
                 match command.unwrap_or(Control::Shutdown) {
                     Control::Connect if proxy.is_none() => { proxy = connect(&observer, &mode).await; }
                     Control::Connect => { observer.model.lock().unwrap().control_error = "Disconnect must finish before connecting".into(); }
-                    Control::SetIp(ip) if proxy.is_none() => {
+                    Control::SetHost(host) if proxy.is_none() => {
                         let path = config_path.clone();
-                        match tokio::task::spawn_blocking(move || config::save_to(&Config { nanonis_ip: ip }, &path)).await {
+                        let config = Config { nanonis_host: host.clone() };
+                        match tokio::task::spawn_blocking(move || config::save_to(&config, &path)).await {
                             Ok(Ok(())) => {
                                 let mut m = observer.model.lock().unwrap();
-                                m.ip = ip;
+                                m.host = host;
                                 m.control_error.clear();
                             }
-                            error => { observer.model.lock().unwrap().control_error = format!("Cannot save IP: {error:?}"); }
+                            error => { observer.model.lock().unwrap().control_error = format!("Cannot save host: {error:?}"); }
                         }
                     }
-                    Control::SetIp(_) => { observer.model.lock().unwrap().control_error = "Disconnect before changing the IP".into(); }
+                    Control::SetHost(_) => { observer.model.lock().unwrap().control_error = "Disconnect before changing the host".into(); }
                     command => {
                         shutdown = matches!(command, Control::Shutdown);
                         if proxy.is_some() {
