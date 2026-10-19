@@ -62,7 +62,13 @@ fn main() -> Result<()> {
         let options = eframe::NativeOptions {
             viewport: eframe::egui::ViewportBuilder::default()
                 .with_inner_size([1200., 850.])
-                .with_min_inner_size([700., 500.]),
+                .with_min_inner_size([700., 500.])
+                .with_icon(
+                    eframe::icon_data::from_png_bytes(
+                        &include_bytes!("../assets/icon-256.png")[..],
+                    )
+                    .expect("Failed to load icon"),
+                ),
             ..Default::default()
         };
         eframe::run_native(
@@ -86,11 +92,9 @@ fn main() -> Result<()> {
     result
 }
 
-
-
 #[cfg(windows)]
 fn attach_parent_console() {
-    use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
 
     unsafe {
         let _ = AttachConsole(ATTACH_PARENT_PROCESS);
